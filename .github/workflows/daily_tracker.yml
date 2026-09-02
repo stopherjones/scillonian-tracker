@@ -1,0 +1,29 @@
+name: Daily Vessel Tracker
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Runs automatically every day at 08:00 UTC
+  workflow_dispatch:      # Allows manually triggering via the Actions tab
+
+jobs:
+  run-tracker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install websockets
+
+      - name: Execute script
+        env:
+          AISSTREAM_KEY: ${{ secrets.AISSTREAM_KEY }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+        run: python tracker.py
