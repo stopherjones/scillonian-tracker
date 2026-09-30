@@ -2,8 +2,16 @@ name: Daily Vessel Tracker
 
 on:
   schedule:
-    - cron: '0 8 * * *'  # Runs automatically every day at 08:00 UTC
-  workflow_dispatch:      # Allows manually triggering via the Actions tab
+    - cron: '0 8 * * *'       # 08:00 UTC: log position AND send the daily email
+    - cron: '0 2,14,20 * * *' # 02:00, 14:00, 20:00 UTC: log position only
+  workflow_dispatch:           # Manual run from the Actions tab (also sends the email)
+
+permissions:
+  contents: write              # needed to commit positions.json
+
+concurrency:
+  group: vessel-tracker
+  cancel-in-progress: false
 
 jobs:
   run-tracker:
@@ -26,4 +34,13 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          LISTEN_SECONDS: '240'
+          SEND_EMAIL: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 8 * * *' }}
         run: python tracker.py
+
+      - name: Commit position log
+        run: |
+          git config user.name "vessel-tracker"
+          git config user.email "actions@users.noreply.github.com"
+          git add positions.json
+          git diff --staged --quiet || (git commit -m "Update ship positions" && git push)

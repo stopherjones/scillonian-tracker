@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scillonian IV: voyage track</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+  :root {
+    --sea: #dfe9ea;
+    --ink: #12303d;
+    --muted: #55707a;
+    --hull: #c23a2e;
+    --paper: rgba(250, 252, 252, 0.95);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--sea); }
+  #map { position: absolute; inset: 0; }
+  .panel {
+    position: absolute; z-index: 1000; top: 12px; left: 12px;
+    width: min(320px, calc(100vw - 24px));
+    background: var(--paper); border: 1px solid #b9cbce; border-radius: 6px;
+    padding: 14px 16px; box-shadow: 0 2px 10px rgba(18, 48, 61, 0.18);
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 2px; letter-spacing: 0.01em; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 0.9rem; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { font-size: 0.9rem; line-height: 1.4; margin: 0; }
+  button {
+    margin-top: 12px; width: 100%; padding: 7px; font: inherit; font-size: 0.85rem;
+    color: var(--ink); background: #fff; border: 1px solid #9bb3b8; border-radius: 4px; cursor: pointer;
+  }
+  button:hover { background: #eef5f6; }
+  button:focus-visible { outline: 2px solid var(--hull); outline-offset: 2px; }
+  .legend { margin: 10px 0 0; font-size: 0.78rem; color: var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    :root { --sea: #12232b; --ink: #e3eef0; --muted: #9db4ba; --paper: rgba(18, 35, 43, 0.95); }
+    .panel { border-color: #2f4a54; }
+    button { background: #1b333d; border-color: #3b5a66; }
+    button:hover { background: #23424e; }
+  }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Map of the Scillonian IV voyage"></div>
+<section class="panel" aria-live="polite">
+  <h1>Scillonian IV</h1>
+  <p class="sub" id="sub">Loading track…</p>
+  <div id="stats"></div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+// Edit the destination if she's headed somewhere other than Penzance.
+const DEST = { name: "Penzance", lat: 50.118, lon: -5.531 };
+const GAP_HOURS = 12; // fixes further apart than this are joined by a dashed line
+const HULL = "#c23a2e";
+
+const map = L.map("map", { worldCopyJump: false }).setView([20, 70], 3);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18,
+  attribution: "&copy; OpenStreetMap contributors"
+}).addTo(map);
+
+L.circleMarker([DEST.lat, DEST.lon], { radius: 6, color: "#12303d", weight: 2, fillColor: "#fff", fillOpacity: 1 })
+  .addTo(map).bindTooltip(DEST.name);
+
+function km(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const nm = k => k / 1.852;
+const fmt = n => Math.round(n).toLocaleString("en-GB");
+const when = iso => new Date(iso).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) + " UTC";
+
+function ago(iso) {
+  const h = (Date.now() - new Date(iso)) / 36e5;
+  if (h < 1) return "under an hour ago";
+  if (h < 48) return Math.round(h) + " h ago";
+  return Math.round(h / 24) + " days ago";
+}
+
+function render(fixes) {
+  const sub = document.getElementById("sub");
+  const stats = document.getElementById("stats");
+
+  if (!fixes.length) {
+    sub.textContent = "No positions yet";
+    stats.innerHTML = '<p class="empty">The first point appears once the tracker catches the ship within range of an AIS receiver.</p>';
+    return;
+  }
+
+  const last = fixes[fixes.length - 1];
+  let travelled = 0, segment = [fixes[0]];
+  for (let i = 1; i < fixes.length; i++) {
+    const a = fixes[i - 1], b = fixes[i];
+    travelled += km(a, b);
+    const gap = (new Date(b.time) - new Date(a.time)) / 36e5 > GAP_HOURS;
+    L.polyline([[a.lat, a.lon], [b.lat, b.lon]], {
+      color: HULL, weight: 3, opacity: 0.9, dashArray: gap ? "2 8" : null
+    }).addTo(map);
+  }
+
+  fixes.forEach((f, i) => {
+    if (i === fixes.length - 1) return;
+    L.circleMarker([f.lat, f.lon], { radius: 3, color: HULL, weight: 1, fillColor: "#fff", fillOpacity: 1 })
+      .addTo(map).bindTooltip(when(f.time));
+  });
+  L.circleMarker([last.lat, last.lon], { radius: 8, color: "#fff", weight: 2, fillColor: HULL, fillOpacity: 1 })
+    .addTo(map).bindTooltip("Latest: " + when(last.time));
+
+  L.polyline([[last.lat, last.lon], [DEST.lat, DEST.lon]], {
+    color: "#12303d", weight: 1.5, opacity: 0.5, dashArray: "4 6"
+  }).addTo(map);
+
+  sub.textContent = "Last seen " + ago(last.time);
+  const rows = [
+    ["Position", last.lat.toFixed(3) + ", " + last.lon.toFixed(3)],
+    ["Fix time", when(last.time)],
+    ["Speed", last.sog != null ? last.sog + " kn" : "n/a"],
+    ["Course", last.cog != null ? last.cog + "°" : "n/a"],
+    ["Logged distance", fmt(nm(travelled)) + " nm"],
+    ["To " + DEST.name, fmt(nm(km(last, DEST))) + " nm direct"],
+    ["Fixes logged", String(fixes.length)]
+  ];
+  stats.innerHTML = "<dl>" + rows.map(r => `<dt>${r[0]}</dt><dd>${r[1]}</dd>`).join("") + "</dl>" +
+    '<button id="fit" type="button">Show whole voyage</button>' +
+    '<p class="legend">Solid line: consecutive fixes. Dotted line: a gap of more than ' + GAP_HOURS + ' hours with no signal.</p>';
+
+  const bounds = L.latLngBounds(fixes.map(f => [f.lat, f.lon]).concat([[DEST.lat, DEST.lon]]));
+  const fit = () => map.fitBounds(bounds, { padding: [50, 50], maxZoom: 7 });
+  document.getElementById("fit").addEventListener("click", fit);
+  fit();
+}
+
+fetch("positions.json?t=" + Date.now())
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(render)
+  .catch(() => {
+    document.getElementById("sub").textContent = "Couldn't load positions.json";
+  });
+</script>
+</body>
+</html>
